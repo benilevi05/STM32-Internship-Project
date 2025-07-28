@@ -1,3 +1,6 @@
+#ifndef FDSS_H
+#define FDSS_H
+
 #include <stdint.h>
 #include "stm32f7xx_hal.h"
 
@@ -8,7 +11,7 @@ typedef struct {
 
 typedef enum {
 	TEMP_MODE = 0,
-	COUNT_MODE = 1
+	CLOCK_MODE = 1
 } MODE_t;
 
 #define NUM_LEDS_SEGMENT  (sizeof(leds_segment)/sizeof(leds_segment[0]))
@@ -35,11 +38,14 @@ typedef enum {
 //Public Functions
 void display_number(int n);
 void set_mode(short modeToSet);
+short get_mode();
 
 //Private Functions
 void turn_all_leds_off();
 void display_digit(int x);
 static void switch_digit(int i);
 void display_temp();
-void display_count();
+void display_clock();
 void display_symbol(char c);
+
+#endif

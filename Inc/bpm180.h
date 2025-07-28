@@ -1,3 +1,6 @@
+#ifndef BPM180_H
+#define BPM180_H
+
 #include <stdint.h>
 #include "stm32f7xx_hal.h"
 
@@ -17,3 +20,4 @@ void BPM_Read_Calibration_Coefficients(I2C_HandleTypeDef *hi2c1);
 long BPM_Read_Raw_Temperature(I2C_HandleTypeDef *hi2c1);
 int BPM_Read_True_Temperature(I2C_HandleTypeDef *hi2c1);
 
+#endif

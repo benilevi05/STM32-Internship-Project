@@ -1,6 +1,5 @@
 #include "4D7S_drive.h"
 
-
 const LED_t LED1 = { .Port = GPIOC, .Pin = GPIO_PIN_7 };
 const LED_t LED2 = { .Port = GPIOC, .Pin = GPIO_PIN_6 };
 const LED_t LED3 = { .Port = GPIOG, .Pin = GPIO_PIN_6 };
@@ -23,18 +22,11 @@ uint32_t segment_map[] = {
 
 volatile int number_shown_int_digits[4]; //The number which will be displayed every 1ms.
 volatile short counter_temp = 0;
+volatile short counter_clock = 0;
 short negativeFlag = 0;
 
 short mode = 0;
 
-/**'
- * Triggered every 1 ms. Displays the number according to the style mode which is set.
- */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	 if (htim->Instance != TIM2) return;
-	 if (mode == TEMP_MODE) {display_temp();}
-	 else if (mode == COUNT_MODE) {display_count();}
-}
 
 /**'
  * Every 1 ms the timer interrupt displays a number. This number is set by calling this function.
@@ -56,6 +48,10 @@ void display_number(int n) {
  */
 void set_mode(short modeToSet) {
 	mode = modeToSet;
+}
+
+short get_mode() {
+	return mode;
 }
 
 void turn_all_leds_off() {
@@ -82,7 +78,7 @@ void display_digit(int digit) {
 /**
  * Switches to the specific digit for modification. Index is 0-based.
  */
-static void switch_digit(int i) {
+void switch_digit(int i) {
 	for(int j = 0; j < 4; j++) {
 		if(j == i) {
 			LED_ON(*leds_digit[j]);
@@ -120,24 +116,31 @@ void display_temp() {
 /**
  * 'Displays the number in a count style. Frequency per digit is 250Hz.
  */
-void display_count() {
-	if (counter_temp == 0) {
+void display_clock() {
+	if (counter_clock == 0) {
 		switch_digit(0);
 		display_digit(number_shown_int_digits[3]);
-		counter_temp = 1;
-	} else if (counter_temp == 1) {
+		counter_clock = 1;
+	} else if (counter_clock == 1) {
 		switch_digit(1);
 		display_digit(number_shown_int_digits[2]);
-		counter_temp = 2;
-	} else if (counter_temp == 2) {
+		counter_clock = 2;
+	} else if (counter_clock == 2) {
 		switch_digit(2);
 		display_digit(number_shown_int_digits[1]);
-		counter_temp = 3;
-	} else if (counter_temp == 3){
+		counter_clock = 3;
+	} else if (counter_clock == 3){
 		switch_digit(3);
 		display_digit(number_shown_int_digits[0]);
-		counter_temp = 0;
+		counter_clock = 4;
+	} else if (counter_clock == 4) { //colon
+		turn_all_leds_off();
+		LED_OFF(LED8); //turn on decimal
+		LED_ON(LED_Digit_2);
+		//LED_ON(LED_Digit_3);
+		counter_clock = 0;
 	}
+
 }
 
 void display_symbol(char c) {
