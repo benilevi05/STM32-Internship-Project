@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdbool.h>
 #include "clickValidate.h"
 #include "bpm180.h"
 #include "clock.h"
@@ -29,7 +30,11 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef enum {
+	NOT_SETTINGS = 0,
+	MINUTE_SETTINGS = 1,
+	HOUR_SETTINGS = 2
+} t_SettingState;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -48,9 +53,10 @@ I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
-
+t_SettingState settingState = NOT_SETTINGS;
 uint16_t temperature = 0;
 int realTemperature = 0;
 
@@ -58,6 +64,10 @@ int numCount = 0;
 
 int secondCount = 0;
 int testTIM3 = 0;
+
+short risingCount = 0;
+short fallingCount = 0;
+bool timer_on = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -66,22 +76,63 @@ static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void resourceIntensiveTask() {
-	HAL_Delay(1000);
+
+/**
+ * CLICK DETECTION
+ * Detects how many clicks the user presses.
+ * If its a long press it changes modes.
+ * If its a single press it increments the given mode by 1.
+ * If its a double press it increments the given mode by 5.
+ */
+void TIM4_Elapsed() {
+	if (fallingCount == 1 && risingCount == 0) { //LONG PRESS
+		if (settingState == NOT_SETTINGS) {
+			set_mode(SETTINGS_MODE);
+		} else if (settingState == HOUR_SETTINGS) {
+			set_mode(TEMP_MODE);
+		}
+		settingState = (settingState + 1) % 3;
+	} else if (fallingCount == 1 && risingCount >=0) { //SINGLE PRESS
+		if (settingState == MINUTE_SETTINGS) {
+			incrementMinute(1);
+		} else if (settingState == HOUR_SETTINGS) {
+			incrementHour(1);
+		}
+	} else if (fallingCount >= 2) { //DOUBLE PRESS
+		if (settingState == MINUTE_SETTINGS) {
+			incrementMinute(5);
+		} else if (settingState == HOUR_SETTINGS) {
+			incrementHour(5);
+		}
+	}
+	display_number((getHour() * 100) + getMinute());
+	HAL_TIM_Base_Stop_IT(&htim4);
+	timer_on = false; risingCount = 0; fallingCount = 0;
 }
 
+void validClick() {
+	if (timer_on == false) {HAL_TIM_Base_Start_IT(&htim4); timer_on = true;}
+	if(HAL_GPIO_ReadPin(GPIOI ,GPIO_PIN_11)) {
+		fallingCount++;
+	 } else {
+		risingCount++;
+	 }
+}
+/**
+ * Button debouncer.
+ */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	bool debounce = isDebounce();
 	if (GPIO_Pin == GPIO_PIN_11 && !debounce) {
-		set_mode(CLOCK_MODE);
-		numCount++;
-		display_number(numCount);
+		 validClick();
+		 return;
 	}
 }
 
@@ -91,17 +142,23 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
  * TIM2 triggered every 1s for clock
  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	if (htim->Instance == TIM4) {
+		 testTIM3++;
+		TIM4_Elapsed();
+		return;
+	}
 	 if (htim->Instance == TIM3) {
 		 if (get_mode() == TEMP_MODE) {display_temp();}
-		 else if (get_mode() == CLOCK_MODE) {display_clock();}
+		 else if (get_mode() == CLOCK_MODE || get_mode() == SETTINGS_MODE) {display_clock();}
+		 return;
 	 }
+	 if (get_mode() == SETTINGS_MODE) {return;} //EARLY RETURN IF SETTINGS MODE
 	 if (htim->Instance== TIM2) {
 		 secondPassed();
 		 secondCount += 1;
 	 }
 	 if (htim->Instance== TIM2 && secondCount >= 3) {
 		 if (get_mode() == TEMP_MODE) {
-			 testTIM3++;
 			 display_number((getHour() * 100) + getMinute());
 			 set_mode(CLOCK_MODE);
 		 } else if (get_mode() == CLOCK_MODE) {
@@ -148,6 +205,7 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   realTemperature = BPM_Read_True_Temperature(&hi2c1);
   realTemperature = realTemperature / 10;
@@ -362,6 +420,51 @@ static void MX_TIM3_Init(void)
 }
 
 /**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 1070;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 39999;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -419,7 +522,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : PI11 */
   GPIO_InitStruct.Pin = GPIO_PIN_11;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOI, &GPIO_InitStruct);
 

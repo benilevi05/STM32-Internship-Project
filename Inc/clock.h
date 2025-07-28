@@ -25,5 +25,7 @@ typedef struct {
 void secondPassed();
 short getHour();
 short getMinute();
+void incrementMinute(int val);
+void incrementHour(int val);
 
 #endif

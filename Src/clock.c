@@ -21,3 +21,13 @@ short getHour() {
 short getMinute() {
 	return clock.minute;
 }
+
+void incrementMinute(int val) {
+	clock.minute += val;
+	if (clock.minute >=60) {clock.minute -= 60;}
+}
+
+void incrementHour(int val) {
+	clock.hour += val;
+	if (clock.hour >= 24) {clock.hour -= 24;}
+}

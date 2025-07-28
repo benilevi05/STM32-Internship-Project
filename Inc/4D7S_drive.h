@@ -11,7 +11,8 @@ typedef struct {
 
 typedef enum {
 	TEMP_MODE = 0,
-	CLOCK_MODE = 1
+	CLOCK_MODE = 1,
+	SETTINGS_MODE = 2
 } MODE_t;
 
 #define NUM_LEDS_SEGMENT  (sizeof(leds_segment)/sizeof(leds_segment[0]))
@@ -43,7 +44,7 @@ short get_mode();
 //Private Functions
 void turn_all_leds_off();
 void display_digit(int x);
-static void switch_digit(int i);
+void switch_digit(int i);
 void display_temp();
 void display_clock();
 void display_symbol(char c);
