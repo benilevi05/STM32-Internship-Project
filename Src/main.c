@@ -26,6 +26,8 @@
 #include "bpm180.h"
 #include "clock.h"
 #include "4D7S_drive.h"
+#include "UART.h"
+#include "NMEA.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,12 +57,15 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
+UART_HandleTypeDef huart1;
+
 /* USER CODE BEGIN PV */
 t_SettingState settingState = NOT_SETTINGS;
 uint16_t temperature = 0;
 int realTemperature = 0;
 
 int numCount = 0;
+int commandCount = 0;
 
 int secondCount = 0;
 int testTIM3 = 0;
@@ -68,6 +73,12 @@ int testTIM3 = 0;
 short risingCount = 0;
 short fallingCount = 0;
 bool timer_on = false;
+
+char UARTbuffer[10] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'};
+char rx_buff[1];
+char command[99];
+
+t_NMEA_Segment_Fast* pSegment;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,6 +88,7 @@ static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -143,7 +155,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
  */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM4) {
-		 testTIM3++;
 		TIM4_Elapsed();
 		return;
 	}
@@ -160,17 +171,33 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	 if (htim->Instance== TIM2 && secondCount >= 3) {
 		 if (get_mode() == TEMP_MODE) {
 			 display_number((getHour() * 100) + getMinute());
+			 message_clock(&huart1);
 			 set_mode(CLOCK_MODE);
 		 } else if (get_mode() == CLOCK_MODE) {
 			 realTemperature = BPM_Read_True_Temperature(&hi2c1) / 10;
 			 display_number(realTemperature);
+			 message_temperature(&huart1, realTemperature);
 			 set_mode(TEMP_MODE);
 		 }
 		 secondCount = 0;
 	 }
 }
 
-
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    HAL_UART_Transmit(&huart1, rx_buff, 1, 100);
+    if (rx_buff[0] == 13) { // '\r' = 13 in ASCII
+    	//CALL COMMAND IDENTIFIER FUNCTION
+    	for (int i = 0; i < commandCount; i++) { //RESET COMMAND ARRAY
+    		command[i] = 0;
+    	}
+    	commandCount = 0; //RESET commandCount
+    } else {
+    	command[commandCount] = rx_buff[0];
+    	commandCount += 1;
+    }
+    HAL_UART_Receive_IT(&huart1, rx_buff, 1);
+}
 /* USER CODE END 0 */
 
 /**
@@ -206,6 +233,7 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   realTemperature = BPM_Read_True_Temperature(&hi2c1);
   realTemperature = realTemperature / 10;
@@ -215,12 +243,23 @@ int main(void)
 
   //display_number(realTemperature);
   display_number(realTemperature);
+
+  UARTbuffer[0] = 'a';
+
+  HAL_UART_Receive_IT(&huart1, rx_buff, 1);
+
+  char message[27] = {"Hello!"};
+  construct_segment_from_string(message, 0, 7);
+  pSegment = construct_segment_from_string(message, 0, 7);
+  send_single_segment_formatted(&huart1, pSegment);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  //HAL_UART_Transmit(&huart1, &UARTbuffer, 10, 0xFFFF);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -348,9 +387,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 107;
+  htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 999999;
+  htim2.Init.Period = 107999999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -461,6 +500,41 @@ static void MX_TIM4_Init(void)
   /* USER CODE BEGIN TIM4_Init 2 */
 
   /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
 
 }
 
