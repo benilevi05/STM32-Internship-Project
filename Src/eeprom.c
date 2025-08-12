@@ -74,31 +74,3 @@ static HAL_StatusTypeDef eeprom_wait_ready(I2C_HandleTypeDef *hi2c, uint8_t addr
     }
     return HAL_TIMEOUT;
 }
-
-static HAL_StatusTypeDef eeprom_write_16bytes(I2C_HandleTypeDef *hi2c,
-                                              uint8_t addr7, uint8_t memAddr,
-                                              const uint8_t data[16])
-{
-    // first page: memAddr .. memAddr+7
-    HAL_StatusTypeDef st = HAL_I2C_Mem_Write(hi2c, addr7 << 1, memAddr,
-                                             I2C_MEMADD_SIZE_8BIT, (uint8_t*)&data[0], 8, HAL_MAX_DELAY);
-    if (st != HAL_OK) return st;
-
-    st = eeprom_wait_ready(hi2c, addr7, 20);
-    if (st != HAL_OK) return st;
-
-    // second page: memAddr+8 .. memAddr+15
-    st = HAL_I2C_Mem_Write(hi2c, addr7 << 1, (uint8_t)(memAddr + 8),
-                           I2C_MEMADD_SIZE_8BIT, (uint8_t*)&data[8], 8, HAL_MAX_DELAY);
-    if (st != HAL_OK) return st;
-
-    return eeprom_wait_ready(hi2c, addr7, 20);
-}
-
-static HAL_StatusTypeDef eeprom_read_16bytes(I2C_HandleTypeDef *hi2c,
-                                             uint8_t addr7, uint8_t memAddr,
-                                             uint8_t out[16])
-{
-    return HAL_I2C_Mem_Read(hi2c, addr7 << 1, memAddr,
-                            I2C_MEMADD_SIZE_8BIT, out, 16, HAL_MAX_DELAY);
-}
