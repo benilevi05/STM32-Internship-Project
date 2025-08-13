@@ -40,11 +40,11 @@ The AES code is from the following github repository: https://github.com/kokke/t
 
 # Commands
 Added commands that can be written from a serial termninal. The code is splilt in two parts, the first part is in main.c in the HAL_UART_RxCpltCallback() function. This stores the inputs in a buffer until a \n new line is given. If so it calls the second part of the code in command.c where the job of that code is to identify which command was given. There are currently 5 commands:\
-**set_clock dd:dd** where dd:dd is the clock in hours:minutes that is to be set.\
-**set_min_threshold n** where n is the minimum threshold to be set where -256 < n < 256\
-**set_max_threshold n** where n is the maximum threshold to be set where -256 < n < 256\
-**get_clock** gets the current clock in the program.\
-**get_temperature** gets the current temperature in the program.\
-**NOTE:** The get commands need to be followed by a white space or the program won't be able to identify them.
+**set_clock dd:dd;** where dd:dd is the clock in hours:minutes that is to be set.\
+**set_min_threshold n;** where n is the minimum threshold to be set where -256 < n < 256\
+**set_max_threshold n;** where n is the maximum threshold to be set where -256 < n < 256\
+**get_clock;** gets the current clock in the program.\
+**get_temperature;** gets the current temperature in the program.\
+**NOTE:** All commands need to be followed by a semicolon or the program won't be able to identify them.
 
 The set_max_threshold and set_min_threshold commands directly writes to the eeprom to store these variables while get_temperature directly reads from the eeprom to get the temperature.
