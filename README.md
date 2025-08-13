@@ -37,3 +37,14 @@ Instead of a timer interrupt counting seconds and keeping track of time, RTC (re
 ## EEPROM
 Added functionality for an external eeprom that stores temperature and temperature threshold data. The data is stored in a 16 byte array where the first 6 bytes are the respective data stored in 2 bytes each (temperature, maximum threshold, minimum threshold). When storing the value is stored as a positive integer in the second byte. If the value is positive the first byte becomes 2, if its negative it becomes 0. To parse you need to do Second Byte * (First Byte - 1). The 7th byte is a corruption check (not a good one but still one) where it needs to equal 0xAB or the data is corrupted. Then, the data is encrypted with AES encryption using CBC mode. This means if any third-party acquires the eeprom they will need the key to decrypt the data. We use 32 bytes of the eeprom (which is a 24C02N with 256 byte storage). The first 16 bytes are the cipher text while the second 16 bytes is the IV. The IV is needed to decrypt and this way further implementations can randomize the IV when encrypting and store it in the eeprom so it can be decrypted with greater security. 
 The AES code is from the following github repository: https://github.com/kokke/tiny-AES-c
+
+# Commands
+Added commands that can be written from a serial termninal. The code is splilt in two parts, the first part is in main.c in the HAL_UART_RxCpltCallback() function. This stores the inputs in a buffer until a \n new line is given. If so it calls the second part of the code in command.c where the job of that code is to identify which command was given. There are currently 5 commands:\
+**set_clock dd:dd** where dd:dd is the clock in hours:minutes that is to be set.\
+**set_min_threshold n** where n is the minimum threshold to be set where -256 < n < 256\
+**set_max_threshold n** where n is the maximum threshold to be set where -256 < n < 256\
+**get_clock** gets the current clock in the program.\
+**get_temperature** gets the current temperature in the program.\
+**NOTE:** The get commands need to be followed by a white space or the program won't be able to identify them.
+
+The set_max_threshold and set_min_threshold commands directly writes to the eeprom to store these variables while get_temperature directly reads from the eeprom to get the temperature.
