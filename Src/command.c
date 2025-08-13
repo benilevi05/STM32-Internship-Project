@@ -55,18 +55,31 @@ bool commandIdentify(char command[]) {
 	for (int id = 0; id < COMMAND_COUNT; id++) {
 		testCommands++;
 		for (int i = 0; i < strlen(command); i++) {
-			if (command[i] == ' ' && i == strlen(commandList[id])) {matched_id = id; break;} //If we get to a whitespace, matched!
+			if (command[i] == ' ' && i == strlen(commandList[id]) && id <= 2) {matched_id = id; break;} //If we get to a whitespace, matched! (Set commands,)
+                        if (command[i] == ';' && i == strlen(commandList[id]) && id >= 3) {matched_id = id; break;} //Get commands.
 			if (command[i] != commandList[id][i]) {break;}
 			}
 	}
-	if (matched_id == -1) {return false;}
+	if (matched_id != -1) {
+          testCommands++;
+          if (matched_id <= 2) {
+            char * token = strtok(command, " ");
+            token = strtok(NULL , " ");
+            if (token[strlen(token) - 1] == ';' ) {
+              token = strtok(token , ";");
+              int value = atoi(token);
+              executeCommand(matched_id, value);
+            } else {
+              return false;
+            }
+          } 
+          else if (matched_id >= 3) {
+            executeCommand(matched_id, 0);
+          }	
+          return true;
+        }
 	else {
-		testCommands++;
-		char * token = strtok(command, " ");
-		token = strtok(NULL , " ");
-		int value = atoi(token);
-		executeCommand(matched_id, value);
-		return true;
+          return false;
 	}
 }
 
