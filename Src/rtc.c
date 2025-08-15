@@ -29,8 +29,11 @@ void rtc_increment_time(int hour, int minute, int second) {
   RTC_TimeTypeDef time;
   rtc_get_time(&time);
   time.Hours += hour;
+  while (time.Hours >= 24) {time.Hours -= 24;} 
   time.Minutes += minute;
+  while (time.Minutes >= 60) {time.Minutes -= 60;} 
   time.Seconds += second;
+  while (time.Seconds >= 60) {time.Seconds -= 60;} 
   rtc_set_time(time.Hours, time.Minutes, time.Hours);
 }
 

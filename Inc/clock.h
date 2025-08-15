@@ -27,5 +27,7 @@ short getHour();
 short getMinute();
 void incrementMinute(int val);
 void incrementHour(int val);
+void resetSeconds();
+void setClock(int val);
 
 #endif

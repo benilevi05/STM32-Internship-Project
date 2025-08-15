@@ -36,6 +36,13 @@ typedef enum {
 #define SYMBOL_C (uint32_t)0b00111001
 #define SYMBOL_NEGATIVE (uint32_t)0b01000000
 
+
+typedef enum {
+  BOTH = 0,
+  HOUR_ONLY,
+  MINUTE_ONLY
+} t_ClockMode;
+
 //Public Functions
 void display_number(int n);
 void set_mode(short modeToSet);
@@ -46,7 +53,7 @@ void turn_all_leds_off();
 void display_digit(int x);
 void switch_digit(int i);
 void display_temp();
-void display_clock();
+void display_clock(t_ClockMode clockMode);
 void display_symbol(char c);
 
 #endif

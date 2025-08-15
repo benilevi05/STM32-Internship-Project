@@ -41,6 +41,12 @@ void send_single_frame_formatted(UART_HandleTypeDef *huart, t_NMEA_Frame_Fast *N
 	}
 }
 
+/**
+ * Transmits a segment formatted to be displayed in a terminal.
+ * Note for the future: Ensure free() function works
+ * @param *huart: The pointer to the UART channel.
+ * @param *NMEA_segment: The pointer to the segment that will be sent.
+ */
 void send_single_segment_formatted(UART_HandleTypeDef *huart, t_NMEA_Segment_Fast *NMEA_segment) {
 	for (int frameNum = 0; frameNum < 4; frameNum++) {
 		send_single_frame_formatted(huart, &NMEA_segment->frames[frameNum]);
@@ -48,6 +54,13 @@ void send_single_segment_formatted(UART_HandleTypeDef *huart, t_NMEA_Segment_Fas
 	free(NMEA_segment);
 }
 
+/**
+ * Constructs an NMEA segment given a string, sequence number, and string size.
+ * @param char stingToConvert[27]: a string of maximum 27 size to be converted.
+ * @param uint8_t seq: Sequence number of the segment
+ * @param uint8_t size: Number of characters to be considered in the string.
+ * @return segment: The pointer to the segment that will be returned.
+ */
 t_NMEA_Segment_Fast* construct_segment_from_string(char stringToConvert[27], uint8_t seq, uint8_t size) {
 	uint8_t count = 0;
 	t_NMEA_Segment_Fast* segment = malloc(sizeof(t_NMEA_Segment_Fast));

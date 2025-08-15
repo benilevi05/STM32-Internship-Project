@@ -4,7 +4,6 @@ char temperatureInASCII[6];
 char clockInASCII[13];
 char message[] = "Temperature: ";
 
-
 void intToASCII(int num) {
 	uint8_t a, b;
 	a = num %10;
@@ -18,16 +17,18 @@ void intToASCII(int num) {
 void message_temperature(UART_HandleTypeDef *huart, int realTemperature) {
 	uint8_t temp = realTemperature;
 	intToASCII(temp);
-	HAL_UART_Transmit(huart, &message , strlen(message), 100);
-	HAL_UART_Transmit(huart, &temperatureInASCII , strlen(temperatureInASCII), 10);
+	HAL_UART_Transmit(huart, (uint8_t*)message , strlen(message), 100);
+	HAL_UART_Transmit(huart, (uint8_t*)temperatureInASCII , strlen(temperatureInASCII), 10);
 }
 
 void message_clock(UART_HandleTypeDef *huart) {
 	uint8_t h1, h2, m1, m2;
-	h2 = getHour() / 10;
-	h1 = getHour() % 10;
-	m2 = getMinute() / 10;
-	m1 = getMinute() % 10;
+        RTC_TimeTypeDef gTime;
+        rtc_get_time(&gTime);
+	h2 = gTime.Hours / 10;
+	h1 = gTime.Hours % 10;
+	m2 = gTime.Minutes / 10;
+	m1 = gTime.Minutes % 10;
 	clockInASCII[0] = 'T';
 	clockInASCII[1] = 'i';
 	clockInASCII[2] = 'm';

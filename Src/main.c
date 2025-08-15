@@ -22,12 +22,18 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
+#include <stdio.h>
 #include "clickValidate.h"
 #include "bpm180.h"
-#include "clock.h"
 #include "4D7S_drive.h"
 #include "UART.h"
 #include "NMEA.h"
+#include "rtc.h"
+#include "threshold.h"
+#include "i2c_scanner.h"
+#include "lcd_drive.c"
+#include "eeprom.h"
+#include "aes.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -53,6 +59,8 @@ typedef enum {
 
 I2C_HandleTypeDef hi2c1;
 
+RTC_HandleTypeDef hrtc;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
@@ -61,6 +69,7 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 t_SettingState settingState = NOT_SETTINGS;
+RTC_TimeTypeDef gTime = {0};
 uint16_t temperature = 0;
 int realTemperature = 0;
 
@@ -68,7 +77,6 @@ int numCount = 0;
 int commandCount = 0;
 
 int secondCount = 0;
-int testTIM3 = 0;
 
 short risingCount = 0;
 short fallingCount = 0;
@@ -77,8 +85,15 @@ bool timer_on = false;
 char UARTbuffer[10] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'};
 char rx_buff[1];
 char command[99];
+char commandErrorMessage[27] = "Couldn't identify command\r\n";
 
 t_NMEA_Segment_Fast* pSegment;
+
+volatile int foundChannel = 0;
+int temperature_output[3] = {0};
+
+int settingModeCounter = 0;
+int settingModeBlink = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -89,20 +104,36 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
-
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+static void display_lcd();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
 /**
- * CLICK DETECTION
- * Detects how many clicks the user presses.
- * If its a long press it changes modes.
- * If its a single press it increments the given mode by 1.
- * If its a double press it increments the given mode by 5.
- */
+* Displays the clock, temperature, and any threshold violations in the lcd. Called every second from TIM2.
+*/
+static void display_lcd() {
+        char buffer[32];
+        lcd_set_cursor(0,0);
+        snprintf(buffer, sizeof(buffer), "Temperature: %dC", realTemperature);
+        lcd_puts(buffer);
+        lcd_set_cursor(0,1);
+        if (realTemperature > maxThreshold && realTemperature < minThreshold) {
+            snprintf(buffer, sizeof(buffer), "%d%d:%d%d Both Alert", gTime.Hours / 10, gTime.Hours % 10, gTime.Minutes / 10, gTime.Minutes % 10);
+        } else if (realTemperature > maxThreshold) {
+            snprintf(buffer, sizeof(buffer), "%d%d:%d%d Max Alert ", gTime.Hours / 10, gTime.Hours % 10, gTime.Minutes / 10, gTime.Minutes % 10);
+        } else if (realTemperature < minThreshold) {
+            snprintf(buffer, sizeof(buffer), "%d%d:%d%d Min Alert ", gTime.Hours / 10, gTime.Hours % 10, gTime.Minutes / 10, gTime.Minutes % 10);
+        } else {
+            snprintf(buffer, sizeof(buffer), "%d%d:%d%d No Alert  ", gTime.Hours / 10, gTime.Hours % 10, gTime.Minutes / 10, gTime.Minutes % 10);
+        }
+        lcd_puts(buffer);
+}
+
 void TIM4_Elapsed() {
 	if (fallingCount == 1 && risingCount == 0) { //LONG PRESS
 		if (settingState == NOT_SETTINGS) {
@@ -113,25 +144,34 @@ void TIM4_Elapsed() {
 		settingState = (settingState + 1) % 3;
 	} else if (fallingCount == 1 && risingCount >=0) { //SINGLE PRESS
 		if (settingState == MINUTE_SETTINGS) {
-			incrementMinute(1);
+                        rtc_increment_time(0,1,0);
 		} else if (settingState == HOUR_SETTINGS) {
-			incrementHour(1);
+                        rtc_increment_time(1, 0, 0);
 		}
 	} else if (fallingCount >= 2) { //DOUBLE PRESS
 		if (settingState == MINUTE_SETTINGS) {
-			incrementMinute(5);
+			rtc_increment_time(0,5,0);
 		} else if (settingState == HOUR_SETTINGS) {
-			incrementHour(5);
+			rtc_increment_time(5, 0, 0);
 		}
 	}
-	display_number((getHour() * 100) + getMinute());
+        rtc_get_time(&gTime);
+	display_number((gTime.Hours * 100) + gTime.Minutes);
+        rtc_reset_seconds();
 	HAL_TIM_Base_Stop_IT(&htim4);
 	timer_on = false; risingCount = 0; fallingCount = 0;
 }
 
-void validClick() {
+/**
+ * CLICK DETECTION
+ * Detects how many clicks the user presses.
+ * If its a long press it changes modes.
+ * If its a single press it increments the given mode by 1.
+ * If its a double press it increments the given mode by 5.
+ */
+void validClick(uint16_t GPIO_Pin) {
 	if (timer_on == false) {HAL_TIM_Base_Start_IT(&htim4); timer_on = true;}
-	if(HAL_GPIO_ReadPin(GPIOI ,GPIO_PIN_11)) {
+	if(HAL_GPIO_ReadPin(GPIOI ,GPIO_Pin)) {
 		fallingCount++;
 	 } else {
 		risingCount++;
@@ -142,8 +182,8 @@ void validClick() {
  */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	bool debounce = isDebounce();
-	if (GPIO_Pin == GPIO_PIN_11 && !debounce) {
-		 validClick();
+	if ((GPIO_Pin == GPIO_PIN_11 || GPIO_Pin == GPIO_PIN_2) && !debounce) {
+		 validClick(GPIO_Pin);
 		 return;
 	}
 }
@@ -160,34 +200,76 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	}
 	 if (htim->Instance == TIM3) {
 		 if (get_mode() == TEMP_MODE) {display_temp();}
-		 else if (get_mode() == CLOCK_MODE || get_mode() == SETTINGS_MODE) {display_clock();}
+		 else if (get_mode() == CLOCK_MODE) {
+                   rtc_get_time(&gTime);
+                   display_number(gTime.Hours * 100 + gTime.Minutes);
+                   display_clock(BOTH);
+                 } else if (get_mode() == SETTINGS_MODE) {
+                    rtc_get_time(&gTime);
+                    settingModeCounter += 1;
+                    if (settingModeCounter > 500) {
+                      settingModeBlink = (settingModeBlink + 1) % 2;
+                      settingModeCounter = 0;
+                    }
+                    if (settingState == MINUTE_SETTINGS) {
+                      if (settingModeBlink == 1) {
+                        display_clock(BOTH);
+                      } else {
+                        display_clock(HOUR_ONLY);
+                      }
+                    } else if (settingState == HOUR_SETTINGS) {
+                      if (settingModeBlink == 1) {
+                        display_clock(BOTH);
+                      } else {
+                        display_clock(MINUTE_ONLY);
+                      }
+                    }
+                    rtc_reset_seconds();
+                 }
 		 return;
 	 }
-	 if (get_mode() == SETTINGS_MODE) {return;} //EARLY RETURN IF SETTINGS MODE
 	 if (htim->Instance== TIM2) {
-		 secondPassed();
 		 secondCount += 1;
+                 display_lcd();
 	 }
 	 if (htim->Instance== TIM2 && secondCount >= 3) {
 		 if (get_mode() == TEMP_MODE) {
-			 display_number((getHour() * 100) + getMinute());
-			 message_clock(&huart1);
+                         rtc_get_time(&gTime);
+			 display_number(gTime.Hours * 100 + gTime.Minutes);
+                         eeprom_get_temperature(temperature_output);
 			 set_mode(CLOCK_MODE);
+                         secondCount = 0;
 		 } else if (get_mode() == CLOCK_MODE) {
+                         set_mode(TEMP_MODE);
 			 realTemperature = BPM_Read_True_Temperature(&hi2c1) / 10;
+                         eeprom_store_temperature(realTemperature, maxThreshold, minThreshold);
 			 display_number(realTemperature);
-			 message_temperature(&huart1, realTemperature);
-			 set_mode(TEMP_MODE);
-		 }
-		 secondCount = 0;
+                         checkThresholds(realTemperature);
+                         secondCount = 0;
+		 } else if (get_mode() == SETTINGS_MODE && secondCount > 120) { //Settings Timeout for unintentional button hold detection.
+                         set_mode(TEMP_MODE);
+                         settingState = NOT_SETTINGS;
+                         secondCount = 0;
+                 } 
+      
+
 	 }
 }
 
+/**
+* Handles UART input from a serial terminal.
+*/
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     HAL_UART_Transmit(&huart1, rx_buff, 1, 100);
     if (rx_buff[0] == 13) { // '\r' = 13 in ASCII
+		t_NMEA_Segment_Fast *pSegNL = construct_segment_from_string("\r\n", 0, strlen("\r\n"));
+		send_single_segment_formatted(&huart1, pSegNL);
     	//CALL COMMAND IDENTIFIER FUNCTION
+    	if (commandIdentify(command) == false) {
+    		t_NMEA_Segment_Fast *pSegError = construct_segment_from_string(commandErrorMessage, 0, strlen(commandErrorMessage));
+    		send_single_segment_formatted(&huart1, pSegError);
+    	}
     	for (int i = 0; i < commandCount; i++) { //RESET COMMAND ARRAY
     		command[i] = 0;
     	}
@@ -234,10 +316,23 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_USART1_UART_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
+  initialize_rtc(&hrtc);
+  if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) != 0x2345) {
+    HAL_PWR_EnableBkUpAccess();
+    HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, 0x2345);
+    rtc_set_time(12, 0, 3);
+  }
+  
   realTemperature = BPM_Read_True_Temperature(&hi2c1);
   realTemperature = realTemperature / 10;
 
+  eeprom_get_temperature(temperature_output);
+  setMaxThreshold(temperature_output[1]);
+  setMinThreshold(temperature_output[2]);
+
+  
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_Base_Start_IT(&htim3);
 
@@ -248,10 +343,15 @@ int main(void)
 
   HAL_UART_Receive_IT(&huart1, rx_buff, 1);
 
-  char message[27] = {"Hello!"};
-  construct_segment_from_string(message, 0, 7);
-  pSegment = construct_segment_from_string(message, 0, 7);
+  char message[27] = {"Hello!\r\n"};
+  construct_segment_from_string(message, 0, 9);
+  pSegment = construct_segment_from_string(message, 0, 9);
   send_single_segment_formatted(&huart1, pSegment);
+
+  commanndSetChannels(&huart1, &hi2c1);
+  
+  lcd_init(&hi2c1, 0x27, true, true, false);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -276,6 +376,11 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+  /** Configure LSE Drive Capability
+  */
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
+
   /** Configure the main internal regulator output voltage
   */
   __HAL_RCC_PWR_CLK_ENABLE();
@@ -284,7 +389,8 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSE;
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -365,6 +471,69 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+  if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) != 0x2345) {
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0;
+  sTime.Minutes = 0;
+  sTime.Seconds = 0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 1;
+  sDate.Year = 0;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+  }
+  /* USER CODE END RTC_Init 2 */
 
 }
 
@@ -552,8 +721,8 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOI_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOI_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOG_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
@@ -563,10 +732,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOI, GPIO_PIN_3|GPIO_PIN_0, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15|GPIO_PIN_8, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOI, GPIO_PIN_3|GPIO_PIN_0, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7|GPIO_PIN_6, GPIO_PIN_RESET);
@@ -587,6 +756,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : PA15 PA8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_15|GPIO_PIN_8;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /*Configure GPIO pins : PI3 PI0 */
   GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_0;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -594,18 +770,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOI, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PI11 */
-  GPIO_InitStruct.Pin = GPIO_PIN_11;
+  /*Configure GPIO pins : PI2 PI11 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_11;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOI, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PC7 PC6 */
   GPIO_InitStruct.Pin = GPIO_PIN_7|GPIO_PIN_6;
@@ -636,6 +805,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
@@ -645,7 +817,14 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+PUTCHAR_PROTOTYPE
+{
+  /* Place your implementation of fputc here */
+  /* e.g. write a character to the USART1 and Loop until the end of transmission */
+  HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 0xFFFF);
 
+  return ch;
+}
 /* USER CODE END 4 */
 
 /**

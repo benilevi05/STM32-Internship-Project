@@ -59,6 +59,9 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 
 /* USER CODE BEGIN Private defines */
+extern UART_HandleTypeDef huart1;
+extern I2C_HandleTypeDef hi2c1;
+extern int realTemperature;
 
 /* USER CODE END Private defines */
 

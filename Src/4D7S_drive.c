@@ -9,10 +9,10 @@ const LED_t LED6 = { .Port = GPIOI, .Pin = GPIO_PIN_0 };
 const LED_t LED7 = { .Port = GPIOH, .Pin = GPIO_PIN_6 };
 const LED_t LED8 = { .Port = GPIOI, .Pin = GPIO_PIN_3 };
 
-const LED_t LED_Digit_1 = { .Port = GPIOF, .Pin = GPIO_PIN_6 };
-const LED_t LED_Digit_2 = { .Port = GPIOF, .Pin = GPIO_PIN_7 };
-const LED_t LED_Digit_3 = { .Port = GPIOF, .Pin = GPIO_PIN_8 };
-const LED_t LED_Digit_4 = { .Port = GPIOF, .Pin = GPIO_PIN_9 };
+const LED_t LED_Digit_4 = { .Port = GPIOF, .Pin = GPIO_PIN_6 };
+const LED_t LED_Digit_3 = { .Port = GPIOF, .Pin = GPIO_PIN_7 };
+const LED_t LED_Digit_2 = { .Port = GPIOF, .Pin = GPIO_PIN_8 };
+const LED_t LED_Digit_1 = { .Port = GPIOF, .Pin = GPIO_PIN_9 };
 const LED_t *leds_segment[] = {&LED1, &LED2, &LED3, &LED4, &LED5, &LED6, &LED7, &LED8};
 const LED_t *leds_digit[] = {&LED_Digit_1, &LED_Digit_2, &LED_Digit_3, &LED_Digit_4};
 
@@ -26,7 +26,6 @@ volatile short counter_clock = 0;
 short negativeFlag = 0;
 
 short mode = 0;
-
 
 /**'
  * Every 1 ms the timer interrupt displays a number. This number is set by calling this function.
@@ -116,7 +115,8 @@ void display_temp() {
 /**
  * 'Displays the number in a count style. Frequency per digit is 250Hz.
  */
-void display_clock() {
+void display_clock(t_ClockMode clockMode) {
+  if (clockMode == BOTH) {
 	if (counter_clock == 0) {
 		switch_digit(0);
 		display_digit(number_shown_int_digits[3]);
@@ -140,7 +140,33 @@ void display_clock() {
 		//LED_ON(LED_Digit_3);
 		counter_clock = 0;
 	}
-
+  } else if (clockMode == HOUR_ONLY) {
+      if (counter_clock % 4 == 0) {
+            switch_digit(0);
+            display_digit(number_shown_int_digits[3]);
+            counter_clock = 1;
+      } else if (counter_clock % 4 == 1) {
+            switch_digit(1);
+            display_digit(number_shown_int_digits[2]);
+            counter_clock = 2;
+      } else if (counter_clock % 4 == 2 || counter_clock % 4 == 3) {
+            turn_all_leds_off();
+            counter_clock = (counter_clock + 1) % 4;
+      }
+  } else if (clockMode == MINUTE_ONLY) {
+      if (counter_clock % 2 == 0) {
+            switch_digit(2);
+            display_digit(number_shown_int_digits[1]);
+            counter_clock = 1;
+      } else if (counter_clock % 2 == 1) {
+            switch_digit(3);
+		display_digit(number_shown_int_digits[0]);
+		counter_clock = 2;
+      } else if (counter_clock % 4 == 2 || counter_clock % 4 == 3) {
+            turn_all_leds_off();
+            counter_clock = (counter_clock + 1) % 4;
+      }
+  }
 }
 
 void display_symbol(char c) {

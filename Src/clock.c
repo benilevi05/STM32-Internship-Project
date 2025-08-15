@@ -1,3 +1,7 @@
+//My Timer is slightly too fast. About 1 minute per 40 minutes.
+//Similar problem below:
+//https://community.st.com/t5/stm32-mcus-products/stm32h7-timer-interrupt-slightly-too-fast/td-p/145539
+
 #include "clock.h"
 
 extern t_Clock clock = {0, 0, 0};
@@ -30,4 +34,14 @@ void incrementMinute(int val) {
 void incrementHour(int val) {
 	clock.hour += val;
 	if (clock.hour >= 24) {clock.hour -= 24;}
+}
+
+void resetSeconds() {
+	clock.second = 0;
+}
+
+void setClock(int val) {
+	clock.hour = val / 100;
+	clock.minute = val %100;
+	clock.second = 0;
 }
