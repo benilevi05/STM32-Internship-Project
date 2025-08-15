@@ -1,6 +1,8 @@
 # STM32 Internship Project
 
 ## Program Overview:
+The purpose of the program is to be a clock and thermometer with an alert functionality where the program will post an alert if the temperature goes out of range of a cerain threshold. These thresholds can be set using a Serial Terminal. The clock can be configured either from the serial terminal or the physical button where a long press gets you to settings mode. In settings mode a single click increments the selected value by 1 and double click increments the selected value by 5. Long press switch between the hour and minute values and also exits the settings mode. The clock and temperature are displayed on a 4D7S LED with 3 second interval between them. There is also an I2C lcd which displays these values along with the alerts.
+
 The program works with various interrupts providing various functionalities. The program doesn't have a main "while loop", instead the timer interrupts act triggers. This means the program is scalable and performance efficient.  
 The program uses three different timers. TIM2 is the timer for the **clock**, TIM3 is the timer for the **display**, and TIM4 is the timer for the **button**. Because HAL calls the same callback function for all the timers, these timers all call *HAL_TIM_PeriodElapsedCallback(htim)* function. TIM2 calls every 1 second, TIM3 calls every 1 milisecond, TIM4 calls 300 miliseconds after activation. 
 The program has three different main modes. **TEMP_MODE** is the mode that the program is in when displaying temperature. **CLOCK_MODE** is the mode that the program is in when displaying the clock. **SETTING_MODE** is the mode that the program is in when the user is changing the clock via the button.
@@ -17,7 +19,7 @@ Long press -> Switch Modes
 One Press -> Increment by 1  
 Double Press -> Increment by 5
 
-## 4 digit 7 segment LED: (7D4S_drive)
+## 4 digit 7 segment LED: (4D7S_drive)
 In order to use the 4 digit 7 segment LED the user needs to only call the function display_number(int number). This will display that number on the 7 segment LED.
 The frequency for the LED is 250 Hz per digit. 
 The user can use the set_mode(short modeToSet) function to set the mode of the display style.
@@ -47,4 +49,9 @@ Added commands that can be written from a serial termninal. The code is splilt i
 **get_temperature;** gets the current temperature in the program.\
 **NOTE:** All commands need to be followed by a semicolon or the program won't be able to identify them.
 
-The set_max_threshold and set_min_threshold commands directly writes to the eeprom to store these variables while get_temperature directly reads from the eeprom to get the temperature.
+
+The set_max_threshold and set_min_threshold commands directly writes to the eeprom to store these variables while get_temperature directly reads from the eeprom to get thetemperature.
+
+# Images
+![20250812_153758](https://github.com/user-attachments/assets/889d7415-df04-44ca-8c5d-46e137e3e9cf)
+![20250815_141833](https://github.com/user-attachments/assets/3b057e8d-68ac-4529-94f9-a3c5f82cff96)
